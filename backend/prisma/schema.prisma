@@ -1,0 +1,807 @@
+// Genesis WMS Database Schema
+// Order Management Module
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// CORE ENTITIES
+// ============================================================================
+
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  code      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  users          User[]
+  warehouses     Warehouse[]
+  customers      Customer[]
+  products       Product[]
+  orders         Order[]
+  inventories    Inventory[]
+  pickTasks      PickTask[]
+  packTasks      PackTask[]
+  shipments      Shipment[]
+  auditLogs      AuditLog[]
+
+  @@map("tenants")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  tenantId     String
+  email        String   @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  role         UserRole
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  tenant                    Tenant      @relation(fields: [tenantId], references: [id])
+  ordersCreated             Order[]     @relation("OrderCreatedBy")
+  ordersAllocated           Order[]     @relation("OrderAllocatedBy")
+  ordersCancelled           Order[]     @relation("OrderCancelledBy")
+  pickTasksAssigned         PickTask[]  @relation("PickTaskAssignedTo")
+  packTasksAssigned         PackTask[]  @relation("PackTaskAssignedTo")
+  shipmentsCreated          Shipment[]  @relation("ShipmentCreatedBy")
+  auditLogs                 AuditLog[]
+
+  @@index([tenantId])
+  @@map("users")
+}
+
+enum UserRole {
+  GENESIS_ADMIN
+  TENANT_ADMIN
+  WAREHOUSE_MANAGER
+  WAREHOUSE_OPERATOR
+  PICKER
+  PACKER
+  DISPATCHER
+  CUSTOMER
+}
+
+model Warehouse {
+  id        String   @id @default(uuid())
+  tenantId  String
+  name      String
+  code      String
+  address   Json
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  tenant      Tenant      @relation(fields: [tenantId], references: [id])
+  locations   Location[]
+  orders      Order[]
+  inventories Inventory[]
+  pickTasks   PickTask[]
+  packTasks   PackTask[]
+  shipments   Shipment[]
+  zones       Zone[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@map("warehouses")
+}
+
+model Zone {
+  id          String   @id @default(uuid())
+  tenantId    String
+  warehouseId String
+  name        String
+  code        String
+  zoneType    String? // Frozen, Ambient, Hazmat, etc.
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  warehouse Warehouse  @relation(fields: [warehouseId], references: [id])
+  locations Location[]
+  pickTasks PickTask[]
+
+  @@unique([warehouseId, code])
+  @@index([warehouseId])
+  @@map("zones")
+}
+
+model Location {
+  id          String   @id @default(uuid())
+  tenantId    String
+  warehouseId String
+  zoneId      String?
+  code        String   // e.g., "A-12-3-B"
+  aisle       String?
+  rack        String?
+  shelf       String?
+  bin         String?
+  barcode     String?
+  locationType String  @default("STORAGE") // PICK_FACE, RESERVE, PACKING, SHIPPING
+  isPrimary   Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  warehouse           Warehouse           @relation(fields: [warehouseId], references: [id])
+  zone                Zone?               @relation(fields: [zoneId], references: [id])
+  inventories         Inventory[]
+  allocationDetails   AllocationDetail[]
+  pickTaskLines       PickTaskLine[]
+
+  @@unique([warehouseId, code])
+  @@index([warehouseId])
+  @@index([zoneId])
+  @@map("locations")
+}
+
+model Customer {
+  id        String   @id @default(uuid())
+  tenantId  String
+  code      String
+  name      String
+  email     String?
+  phone     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  tenant Tenant  @relation(fields: [tenantId], references: [id])
+  orders Order[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@map("customers")
+}
+
+model Product {
+  id                   String   @id @default(uuid())
+  tenantId             String
+  sku                  String
+  name                 String
+  description          String?
+  barcode              String?
+  uom                  String   @default("Each")
+  weight               Decimal?
+  dimensions           Json?    // {length, width, height}
+  isBatchTracked       Boolean  @default(false)
+  isSerialTracked      Boolean  @default(false)
+  isTemperatureControlled Boolean @default(false)
+  temperatureZone      String?  // FROZEN, COLD, AMBIENT
+  shelfLifeDays        Int?
+  safetyBufferDays     Int      @default(0)
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  // Relations
+  tenant            Tenant         @relation(fields: [tenantId], references: [id])
+  orderLines        OrderLine[]
+  inventories       Inventory[]
+  allocationDetails AllocationDetail[]
+  pickTaskLines     PickTaskLine[]
+  packTaskLines     PackTaskLine[]
+  shipmentLines     ShipmentLine[]
+
+  @@unique([tenantId, sku])
+  @@index([tenantId])
+  @@index([barcode])
+  @@map("products")
+}
+
+// ============================================================================
+// INVENTORY ENTITIES
+// ============================================================================
+
+model Inventory {
+  id                 String   @id @default(uuid())
+  tenantId           String
+  warehouseId        String
+  locationId         String
+  productId          String
+  batchNumber        String?
+  lotNumber          String?
+  serialNumber       String?
+  lpn                String?  // License Plate Number
+  expiryDate         DateTime?
+  receivedDate       DateTime @default(now())
+  quantityOnHand     Decimal  @default(0)
+  quantityAvailable  Decimal  @default(0)
+  quantityAllocated  Decimal  @default(0)
+  status             InventoryStatus @default(AVAILABLE)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  // Relations
+  tenant               Tenant               @relation(fields: [tenantId], references: [id])
+  warehouse            Warehouse            @relation(fields: [warehouseId], references: [id])
+  location             Location             @relation(fields: [locationId], references: [id])
+  product              Product              @relation(fields: [productId], references: [id])
+  allocationDetails    AllocationDetail[]
+  inventoryTransactions InventoryTransaction[]
+
+  @@index([tenantId])
+  @@index([warehouseId])
+  @@index([productId])
+  @@index([locationId])
+  @@index([status])
+  @@map("inventories")
+}
+
+enum InventoryStatus {
+  AVAILABLE
+  ALLOCATED
+  DAMAGED
+  ON_HOLD
+  QUARANTINE
+}
+
+model InventoryTransaction {
+  id            String   @id @default(uuid())
+  tenantId      String
+  inventoryId   String
+  transactionType String // ALLOCATE, PICK, SHIP, ADJUST, RECEIVE
+  quantity      Decimal
+  referenceType String?  // ORDER, SHIPMENT, ADJUSTMENT
+  referenceId   String?
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  // Relations
+  inventory Inventory @relation(fields: [inventoryId], references: [id])
+
+  @@index([inventoryId])
+  @@index([referenceId])
+  @@map("inventory_transactions")
+}
+
+// ============================================================================
+// ORDER ENTITIES
+// ============================================================================
+
+model Order {
+  id                    String      @id @default(uuid())
+  tenantId              String
+  warehouseId           String
+  orderNumber           String
+  orderType             OrderType   @default(SALES)
+  customerId            String
+  customerName          String
+  customerEmail         String?
+  customerPhone         String?
+  shippingAddress       Json
+  billingAddress        Json?
+  orderDate             DateTime    @default(now())
+  requiredShipDate      DateTime?
+  actualShipDate        DateTime?
+  requestedDeliveryDate DateTime?
+  priority              OrderPriority @default(NORMAL)
+  status                OrderStatus @default(NEW)
+  allocationStrategy    AllocationStrategy @default(FIFO)
+  totalLines            Int         @default(0)
+  totalUnitsOrdered     Decimal     @default(0)
+  totalUnitsAllocated   Decimal     @default(0)
+  totalUnitsPicked      Decimal     @default(0)
+  totalUnitsShipped     Decimal     @default(0)
+  carrier               String?
+  serviceLevel          String?     // Ground, Express, Overnight
+  trackingNumber        String?
+  shippingCost          Decimal?
+  orderValue            Decimal?
+  specialInstructions   String?
+  customReference1      String?
+  customReference2      String?
+  sourceSystem          String      @default("MANUAL")
+  createdById           String
+  allocatedById         String?
+  allocatedAt           DateTime?
+  cancelledById         String?
+  cancelledAt           DateTime?
+  cancellationReason    String?
+  notes                 String?
+  tags                  String[]
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+
+  // Relations
+  tenant            Tenant             @relation(fields: [tenantId], references: [id])
+  warehouse         Warehouse          @relation(fields: [warehouseId], references: [id])
+  customer          Customer           @relation(fields: [customerId], references: [id])
+  createdBy         User               @relation("OrderCreatedBy", fields: [createdById], references: [id])
+  allocatedBy       User?              @relation("OrderAllocatedBy", fields: [allocatedById], references: [id])
+  cancelledBy       User?              @relation("OrderCancelledBy", fields: [cancelledById], references: [id])
+  orderLines        OrderLine[]
+  allocationDetails AllocationDetail[]
+  pickTasks         PickTask[]
+  packTasks         PackTask[]
+  shipments         Shipment[]
+  orderEvents       OrderEvent[]
+
+  @@unique([tenantId, orderNumber])
+  @@index([tenantId])
+  @@index([warehouseId])
+  @@index([customerId])
+  @@index([status])
+  @@index([orderDate])
+  @@map("orders")
+}
+
+enum OrderType {
+  SALES
+  TRANSFER
+  RETURN
+  REPLENISHMENT
+  SAMPLE
+}
+
+enum OrderPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum OrderStatus {
+  NEW
+  ALLOCATED
+  PARTIALLY_ALLOCATED
+  ALLOCATION_FAILED
+  PICKING
+  PICKED
+  PARTIALLY_PICKED
+  PACKING
+  PACKED
+  SHIPPED
+  PARTIALLY_SHIPPED
+  DELIVERED
+  ON_HOLD
+  CANCELLED
+  RETURNED
+  BACKORDERED
+}
+
+enum AllocationStrategy {
+  FIFO
+  FEFO
+  LIFO
+  MANUAL
+}
+
+model OrderLine {
+  id                   String      @id @default(uuid())
+  tenantId             String
+  orderId              String
+  productId            String
+  lineNumber           Int
+  quantityOrdered      Decimal
+  quantityAllocated    Decimal     @default(0)
+  quantityPicked       Decimal     @default(0)
+  quantityPacked       Decimal     @default(0)
+  quantityShipped      Decimal     @default(0)
+  quantityCancelled    Decimal     @default(0)
+  quantityBackordered  Decimal     @default(0)
+  uom                  String      @default("Each")
+  unitPrice            Decimal?
+  lineTotal            Decimal?
+  lineStatus           OrderLineStatus @default(PENDING)
+  allocationRuleOverride AllocationStrategy?
+  specialHandling      String?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  // Relations
+  order             Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product           Product            @relation(fields: [productId], references: [id])
+  allocationDetails AllocationDetail[]
+  pickTaskLines     PickTaskLine[]
+  packTaskLines     PackTaskLine[]
+  shipmentLines     ShipmentLine[]
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_lines")
+}
+
+enum OrderLineStatus {
+  PENDING
+  ALLOCATED
+  PARTIALLY_ALLOCATED
+  PICKED
+  PACKED
+  SHIPPED
+  CANCELLED
+  BACKORDERED
+}
+
+// ============================================================================
+// ALLOCATION ENTITIES
+// ============================================================================
+
+model AllocationDetail {
+  id              String   @id @default(uuid())
+  tenantId        String
+  orderId         String
+  orderLineId     String
+  inventoryId     String
+  locationId      String
+  productId       String
+  quantityAllocated Decimal
+  batchNumber     String?
+  lotNumber       String?
+  expiryDate      DateTime?
+  lpn             String?
+  serialNumbers   String[]
+  status          AllocationStatus @default(ALLOCATED)
+  allocatedAt     DateTime @default(now())
+  pickedAt        DateTime?
+  cancelledAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  order     Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderLine OrderLine @relation(fields: [orderLineId], references: [id], onDelete: Cascade)
+  inventory Inventory @relation(fields: [inventoryId], references: [id])
+  location  Location  @relation(fields: [locationId], references: [id])
+  product   Product   @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@index([orderLineId])
+  @@index([inventoryId])
+  @@map("allocation_details")
+}
+
+enum AllocationStatus {
+  ALLOCATED
+  PICKED
+  CANCELLED
+}
+
+// ============================================================================
+// PICK TASK ENTITIES
+// ============================================================================
+
+model PickTask {
+  id                      String       @id @default(uuid())
+  tenantId                String
+  warehouseId             String
+  taskNumber              String
+  taskType                PickTaskType @default(SINGLE)
+  waveId                  String?
+  zoneId                  String?
+  orderIds                String[]
+  pickerUserId            String?
+  status                  PickTaskStatus @default(PENDING)
+  priority                OrderPriority @default(NORMAL)
+  estimatedDurationMinutes Int?
+  actualDurationMinutes   Int?
+  totalLines              Int          @default(0)
+  totalUnits              Decimal      @default(0)
+  unitsPicked             Decimal      @default(0)
+  pickPathOptimized       Boolean      @default(false)
+  startTime               DateTime?
+  completionTime          DateTime?
+  assignedAt              DateTime?
+  notes                   String?
+  createdAt               DateTime     @default(now())
+  updatedAt               DateTime     @updatedAt
+
+  // Relations
+  tenant        Tenant         @relation(fields: [tenantId], references: [id])
+  warehouse     Warehouse      @relation(fields: [warehouseId], references: [id])
+  zone          Zone?          @relation(fields: [zoneId], references: [id])
+  picker        User?          @relation("PickTaskAssignedTo", fields: [pickerUserId], references: [id])
+  orders        Order[]
+  pickTaskLines PickTaskLine[]
+
+  @@unique([tenantId, taskNumber])
+  @@index([tenantId])
+  @@index([warehouseId])
+  @@index([pickerUserId])
+  @@index([status])
+  @@map("pick_tasks")
+}
+
+enum PickTaskType {
+  SINGLE
+  BATCH
+  WAVE
+  ZONE
+}
+
+enum PickTaskStatus {
+  PENDING
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model PickTaskLine {
+  id              String   @id @default(uuid())
+  tenantId        String
+  pickTaskId      String
+  allocationDetailId String?
+  orderId         String
+  orderLineId     String
+  productId       String
+  locationId      String
+  quantityToPick  Decimal
+  quantityPicked  Decimal  @default(0)
+  pickSequence    Int
+  lineStatus      PickLineStatus @default(PENDING)
+  varianceQuantity Decimal @default(0)
+  varianceReason  String?
+  pickerNotes     String?
+  photoEvidenceUrl String?
+  pickedAt        DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  pickTask  PickTask  @relation(fields: [pickTaskId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [productId], references: [id])
+  location  Location  @relation(fields: [locationId], references: [id])
+  orderLine OrderLine @relation(fields: [orderLineId], references: [id])
+
+  @@index([pickTaskId])
+  @@index([productId])
+  @@index([locationId])
+  @@map("pick_task_lines")
+}
+
+enum PickLineStatus {
+  PENDING
+  PICKED
+  SHORT
+  SKIPPED
+}
+
+// ============================================================================
+// PACK TASK ENTITIES
+// ============================================================================
+
+model PackTask {
+  id                    String         @id @default(uuid())
+  tenantId              String
+  warehouseId           String
+  stationId             String?
+  orderId               String
+  pickTaskId            String?
+  packerUserId          String?
+  status                PackTaskStatus @default(PENDING)
+  totalItemsToPack      Int            @default(0)
+  itemsPacked           Int            @default(0)
+  cartonsUsed           Int            @default(0)
+  totalWeight           Decimal?
+  totalDimensions       Json?
+  shippingLabelGenerated Boolean       @default(false)
+  trackingNumber        String?
+  carrier               String?
+  serviceLevel          String?
+  shippingCost          Decimal?
+  startTime             DateTime?
+  completionTime        DateTime?
+  notes                 String?
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  // Relations
+  tenant        Tenant         @relation(fields: [tenantId], references: [id])
+  warehouse     Warehouse      @relation(fields: [warehouseId], references: [id])
+  order         Order          @relation(fields: [orderId], references: [id])
+  packer        User?          @relation("PackTaskAssignedTo", fields: [packerUserId], references: [id])
+  packTaskLines PackTaskLine[]
+  cartons       Carton[]
+
+  @@index([tenantId])
+  @@index([warehouseId])
+  @@index([orderId])
+  @@index([packerUserId])
+  @@map("pack_tasks")
+}
+
+enum PackTaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  ON_HOLD
+}
+
+model PackTaskLine {
+  id              String         @id @default(uuid())
+  tenantId        String
+  packTaskId      String
+  orderLineId     String
+  productId       String
+  quantityToPack  Decimal
+  quantityPacked  Decimal        @default(0)
+  cartonNumber    Int?
+  batchNumber     String?
+  lotNumber       String?
+  expiryDate      DateTime?
+  serialNumbers   String[]
+  lineStatus      PackLineStatus @default(PENDING)
+  varianceQuantity Decimal       @default(0)
+  varianceReason  String?
+  packedAt        DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  // Relations
+  packTask  PackTask  @relation(fields: [packTaskId], references: [id], onDelete: Cascade)
+  orderLine OrderLine @relation(fields: [orderLineId], references: [id])
+  product   Product   @relation(fields: [productId], references: [id])
+
+  @@index([packTaskId])
+  @@index([orderLineId])
+  @@map("pack_task_lines")
+}
+
+enum PackLineStatus {
+  PENDING
+  PACKED
+  VARIANCE
+}
+
+model Carton {
+  id             String   @id @default(uuid())
+  packTaskId     String
+  orderId        String
+  cartonNumber   Int
+  weight         Decimal?
+  dimensions     Json?    // {length, width, height}
+  trackingNumber String?
+  carrierLabelUrl String?
+  items          Json     // Array of {sku, quantity, batchNumber}
+  createdAt      DateTime @default(now())
+
+  // Relations
+  packTask PackTask @relation(fields: [packTaskId], references: [id], onDelete: Cascade)
+
+  @@index([packTaskId])
+  @@map("cartons")
+}
+
+// ============================================================================
+// SHIPMENT ENTITIES
+// ============================================================================
+
+model Shipment {
+  id                   String           @id @default(uuid())
+  tenantId             String
+  warehouseId          String
+  orderId              String
+  shipmentNumber       String
+  shipmentType         ShipmentType     @default(FULL)
+  carrier              String
+  serviceLevel         String
+  trackingNumber       String
+  trackingUrl          String?
+  estimatedDeliveryDate DateTime?
+  actualDeliveryDate   DateTime?
+  shippingCost         Decimal?
+  shippingWeight       Decimal?
+  shippingDimensions   Json?
+  totalCartons         Int              @default(0)
+  cartonIds            String[]
+  shipDate             DateTime         @default(now())
+  deliveryStatus       DeliveryStatus   @default(PENDING)
+  deliveryNotes        String?
+  signatureRequired    Boolean          @default(false)
+  signatureCapturedAt  DateTime?
+  signedBy             String?
+  proofOfDeliveryUrl   String?
+  createdById          String
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  // Relations
+  tenant        Tenant         @relation(fields: [tenantId], references: [id])
+  warehouse     Warehouse      @relation(fields: [warehouseId], references: [id])
+  order         Order          @relation(fields: [orderId], references: [id])
+  createdBy     User           @relation("ShipmentCreatedBy", fields: [createdById], references: [id])
+  shipmentLines ShipmentLine[]
+
+  @@unique([tenantId, shipmentNumber])
+  @@index([tenantId])
+  @@index([orderId])
+  @@index([trackingNumber])
+  @@map("shipments")
+}
+
+enum ShipmentType {
+  FULL
+  PARTIAL
+  BACKORDER
+}
+
+enum DeliveryStatus {
+  PENDING
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  FAILED
+  RETURNED
+}
+
+model ShipmentLine {
+  id              String   @id @default(uuid())
+  tenantId        String
+  shipmentId      String
+  orderLineId     String
+  productId       String
+  quantityShipped Decimal
+  batchNumber     String?
+  lotNumber       String?
+  expiryDate      DateTime?
+  serialNumbers   String[]
+  cartonNumber    Int?
+  createdAt       DateTime @default(now())
+
+  // Relations
+  shipment  Shipment  @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  orderLine OrderLine @relation(fields: [orderLineId], references: [id])
+  product   Product   @relation(fields: [productId], references: [id])
+
+  @@index([shipmentId])
+  @@index([orderLineId])
+  @@map("shipment_lines")
+}
+
+// ============================================================================
+// EVENT & AUDIT ENTITIES
+// ============================================================================
+
+model OrderEvent {
+  id          String   @id @default(uuid())
+  orderId     String
+  eventType   String   // created, allocated, picked, packed, shipped, etc.
+  description String
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  // Relations
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([eventType])
+  @@map("order_events")
+}
+
+model AuditLog {
+  id            String   @id @default(uuid())
+  tenantId      String
+  userId        String?
+  action        String   // CREATE, UPDATE, DELETE, etc.
+  entityType    String   // Order, Inventory, etc.
+  entityId      String
+  changes       Json?
+  ipAddress     String?
+  userAgent     String?
+  createdAt     DateTime @default(now())
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  user   User?  @relation(fields: [userId], references: [id])
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}

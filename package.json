@@ -1,0 +1,35 @@
+{
+  "name": "genesis-wms-inventory",
+  "version": "1.0.0",
+  "description": "Genesis WMS - Inventory Management Module",
+  "private": true,
+  "workspaces": [
+    "backend/*",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "concurrently \"npm run dev:inventory\" \"npm run dev:batch\" \"npm run dev:threshold\" \"npm run dev:cycle\"",
+    "dev:inventory": "cd backend/inventory-core-service && npm run dev",
+    "dev:batch": "cd backend/batch-management-service && npm run dev",
+    "dev:threshold": "cd backend/threshold-monitoring-service && npm run dev",
+    "dev:cycle": "cd backend/cycle-count-service && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build": "npm run build:backend && npm run build:frontend",
+    "build:backend": "npm run build --workspaces --if-present",
+    "build:frontend": "cd frontend && npm run build",
+    "test": "npm run test --workspaces --if-present",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "db:migrate": "cd database && npm run migrate",
+    "db:seed": "cd database && npm run seed"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}

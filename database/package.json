@@ -1,0 +1,16 @@
+{
+  "name": "@genesis-wms/database",
+  "version": "1.0.0",
+  "description": "Database migrations and seeds for Genesis WMS",
+  "scripts": {
+    "migrate": "node-pg-migrate up",
+    "migrate:down": "node-pg-migrate down",
+    "migrate:create": "node-pg-migrate create",
+    "seed": "node seeds/run-seeds.js"
+  },
+  "dependencies": {
+    "node-pg-migrate": "^6.2.2",
+    "pg": "^8.11.3",
+    "dotenv": "^16.3.1"
+  }
+}

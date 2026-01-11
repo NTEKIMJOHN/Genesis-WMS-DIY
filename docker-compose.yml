@@ -1,6 +1,15 @@
 version: '3.8'
 
 services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: genesis-wms-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: genesis
+      POSTGRES_PASSWORD: genesis_dev_password
+      POSTGRES_DB: genesis_wms
   # PostgreSQL Database with TimescaleDB
   postgres:
     image: timescale/timescaledb:latest-pg14
@@ -13,6 +22,8 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U genesis"]
       - ./database/init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U genesis_admin"]
@@ -20,6 +31,11 @@ services:
       timeout: 5s
       retries: 5
 
+  # Redis for caching and event bus
+  redis:
+    image: redis:7-alpine
+    container_name: genesis-wms-redis
+    restart: unless-stopped
   # Redis Cache
   redis:
     image: redis:7-alpine
@@ -32,6 +48,34 @@ services:
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development
+    container_name: genesis-wms-backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://genesis:genesis_dev_password@postgres:5432/genesis_wms
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: your-secret-key-change-in-production
+      PORT: 3000
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: npm run dev
       timeout: 3s
       retries: 5
 
@@ -145,6 +189,14 @@ services:
   frontend:
     build:
       context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: genesis-wms-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:3000/api/v1
       dockerfile: Dockerfile.dev
     container_name: genesis-wms-frontend
     environment:
@@ -155,6 +207,8 @@ services:
       - ./frontend:/app
       - /app/node_modules
     depends_on:
+      - backend
+    command: npm run dev
       - inventory-core-service
       - batch-management-service
       - threshold-monitoring-service

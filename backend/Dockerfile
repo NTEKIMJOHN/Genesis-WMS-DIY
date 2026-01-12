@@ -1,3 +1,13 @@
+# Development Dockerfile for Genesis WMS Backend
+
+FROM node:18-alpine
+
+# Set working directory
+WORKDIR /app
+
+# Install dependencies for native modules
+RUN apk add --no-cache python3 make g++
+
 # Development stage
 FROM node:20-alpine AS development
 
@@ -7,6 +17,12 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
+RUN npm install
+
+# Copy Prisma schema
+COPY prisma ./prisma
+
+# Generate Prisma client
 RUN npm ci
 
 # Copy prisma schema
@@ -17,6 +33,9 @@ RUN npx prisma generate
 
 # Copy source code
 COPY . .
+
+# Create necessary directories
+RUN mkdir -p uploads logs
 
 # Expose port
 EXPOSE 3000

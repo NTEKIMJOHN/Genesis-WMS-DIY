@@ -1,3 +1,5 @@
+// Genesis WMS - Receiving Management Module
+// Database Schema
 // Genesis WMS Database Schema
 // Order Management Module
 
@@ -10,6 +12,9 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ==========================================
+// CORE ENTITIES
+// ==========================================
 // ============================================================================
 // CORE ENTITIES
 // ============================================================================
@@ -22,6 +27,15 @@ model Tenant {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  warehouses    Warehouse[]
+  users         User[]
+  suppliers     Supplier[]
+  skus          SKU[]
+  asns          ASN[]
+  blindReceipts BlindReceipt[]
+  variances     Variance[]
+  putawayTasks  PutawayTask[]
+  lpns          LPN[]
   // Relations
   users          User[]
   warehouses     Warehouse[]
@@ -37,6 +51,12 @@ model Tenant {
   @@map("tenants")
 }
 
+model Warehouse {
+  id        String   @id @default(uuid())
+  tenantId  String
+  code      String
+  name      String
+  address   String?
 model User {
   id           String   @id @default(uuid())
   tenantId     String
@@ -84,6 +104,16 @@ model Warehouse {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  zones         Zone[]
+  locations     Location[]
+  asns          ASN[]
+  blindReceipts BlindReceipt[]
+  putawayTasks  PutawayTask[]
+  lpns          LPN[]
+  variances     Variance[]
+
+  @@unique([tenantId, code])
   // Relations
   tenant      Tenant      @relation(fields: [tenantId], references: [id])
   locations   Location[]
@@ -100,6 +130,25 @@ model Warehouse {
 }
 
 model Zone {
+  id                  String   @id @default(uuid())
+  warehouseId         String
+  code                String
+  name                String
+  zoneType            ZoneType
+  temperatureControlled Boolean @default(false)
+  temperatureMin      Decimal?  @db.Decimal(5, 2)
+  temperatureMax      Decimal?  @db.Decimal(5, 2)
+  hazmatCertified     Boolean   @default(false)
+  isActive            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  warehouse      Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  locations      Location[]
+  receivingASNs  ASN[]          @relation("ReceivingZone")
+  putawayTasks   PutawayTask[]
+
+  @@unique([warehouseId, code])
   id          String   @id @default(uuid())
   tenantId    String
   warehouseId String
@@ -120,6 +169,36 @@ model Zone {
 }
 
 model Location {
+  id                 String   @id @default(uuid())
+  warehouseId        String
+  zoneId             String
+  code               String
+  locationType       LocationType
+  aisleNumber        String?
+  rackNumber         String?
+  shelfNumber        String?
+  heightLevel        Int      @default(1)
+  maxCapacity        Decimal  @default(1000) @db.Decimal(10, 2)
+  currentCapacityUsed Decimal @default(0) @db.Decimal(10, 2)
+  reservedCapacity   Decimal  @default(0) @db.Decimal(10, 2)
+  maxWeightKg        Decimal? @db.Decimal(10, 2)
+  currentWeightKg    Decimal  @default(0) @db.Decimal(10, 2)
+  maxVolumeM3        Decimal? @db.Decimal(10, 3)
+  currentVolumeM3    Decimal  @default(0) @db.Decimal(10, 3)
+  refrigerated       Boolean  @default(false)
+  hazmatCertified    Boolean  @default(false)
+  temporarilyLocked  Boolean  @default(false)
+  status             LocationStatus @default(ACTIVE)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  warehouse             Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  zone                  Zone           @relation(fields: [zoneId], references: [id])
+  putawayTasksSource    PutawayTask[]  @relation("SourceLocation")
+  putawayTasksDest      PutawayTask[]  @relation("DestinationLocation")
+  lpns                  LPN[]
+
+  @@unique([warehouseId, code])
   id          String   @id @default(uuid())
   tenantId    String
   warehouseId String
@@ -149,6 +228,574 @@ model Location {
   @@map("locations")
 }
 
+model Supplier {
+  id           String   @id @default(uuid())
+  tenantId     String
+  code         String
+  name         String
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+  address      String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  asns   ASN[]
+
+  @@unique([tenantId, code])
+  @@map("suppliers")
+}
+
+model SKU {
+  id                    String   @id @default(uuid())
+  tenantId              String
+  code                  String
+  name                  String
+  description           String?
+  category              String?
+  uom                   String   @default("UNIT")
+  requiresBatchTracking Boolean  @default(false)
+  requiresExpiryTracking Boolean @default(false)
+  requiresSerialTracking Boolean @default(false)
+  isPerishable          Boolean  @default(false)
+  temperatureControlled Boolean  @default(false)
+  temperatureMin        Decimal? @db.Decimal(5, 2)
+  temperatureMax        Decimal? @db.Decimal(5, 2)
+  isHazmat              Boolean  @default(false)
+  hazardClass           String?
+  abcClassification     String?  @default("C")
+  velocity              String?  @default("SLOW")
+  unitCost              Decimal? @db.Decimal(10, 2)
+  weightKg              Decimal? @db.Decimal(10, 3)
+  volumeM3              Decimal? @db.Decimal(10, 4)
+  dimensions            Json?
+  imageUrl              String?
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  tenant             Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  asnLines           ASNLine[]
+  blindReceiptLines  BlindReceiptLine[]
+  variances          Variance[]
+  putawayTasks       PutawayTask[]
+  lpnContents        LPNContent[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, abcClassification])
+  @@index([tenantId, velocity])
+  @@map("skus")
+}
+
+// ==========================================
+// ASN (ADVANCED SHIPMENT NOTICE)
+// ==========================================
+
+model ASN {
+  id                   String      @id @default(uuid())
+  tenantId             String
+  warehouseId          String
+  asnNumber            String
+  poNumber             String?
+  supplierId           String
+  supplierName         String
+  carrier              String?
+  trackingNumber       String?
+  expectedArrivalDate  DateTime
+  actualArrivalDate    DateTime?
+  receivingZoneId      String?
+  priority             Priority    @default(STANDARD)
+  shipmentStatus       ShipmentStatus @default(CREATED)
+  totalExpectedLines   Int         @default(0)
+  totalExpectedUnits   Decimal     @default(0) @db.Decimal(10, 2)
+  totalReceivedLines   Int         @default(0)
+  totalReceivedUnits   Decimal     @default(0) @db.Decimal(10, 2)
+  varianceCount        Int         @default(0)
+  specialInstructions  String?
+  temperatureControlled Boolean    @default(false)
+  hazmatFlag           Boolean     @default(false)
+  createdById          String
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+  receivedById         String?
+  receivedAt           DateTime?
+
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  warehouse      Warehouse @relation(fields: [warehouseId], references: [id])
+  supplier       Supplier  @relation(fields: [supplierId], references: [id])
+  receivingZone  Zone?     @relation("ReceivingZone", fields: [receivingZoneId], references: [id])
+  createdBy      User      @relation("ASNCreatedBy", fields: [createdById], references: [id])
+  receivedBy     User?     @relation("ASNReceivedBy", fields: [receivedById], references: [id])
+  lines          ASNLine[]
+  variances      Variance[]
+
+  @@unique([tenantId, asnNumber])
+  @@index([tenantId, warehouseId, shipmentStatus])
+  @@index([expectedArrivalDate])
+  @@map("asns")
+}
+
+model ASNLine {
+  id                   String     @id @default(uuid())
+  asnId                String
+  tenantId             String
+  lineNumber           Int
+  skuId                String
+  skuCode              String
+  productName          String
+  expectedQuantity     Decimal    @db.Decimal(10, 2)
+  receivedQuantity     Decimal    @default(0) @db.Decimal(10, 2)
+  acceptedQuantity     Decimal    @default(0) @db.Decimal(10, 2)
+  rejectedQuantity     Decimal    @default(0) @db.Decimal(10, 2)
+  uom                  String
+  batchNumberExpected  String?
+  batchNumberReceived  String?
+  expiryDateExpected   DateTime?
+  expiryDateReceived   DateTime?
+  lpnExpected          String?
+  lpnReceived          String?
+  serialNumbers        String[]
+  lineStatus           LineStatus @default(PENDING)
+  varianceType         VarianceType?
+  varianceReasonCode   String?
+  varianceNotes        String?
+  photoEvidenceUrls    String[]
+  qaHold               Boolean    @default(false)
+  temperatureReading   Decimal?   @db.Decimal(5, 2)
+  weight               Decimal?   @db.Decimal(10, 3)
+  dimensions           Json?
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+  receivedAt           DateTime?
+
+  asn      ASN      @relation(fields: [asnId], references: [id], onDelete: Cascade)
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sku      SKU      @relation(fields: [skuId], references: [id])
+
+  @@unique([asnId, lineNumber])
+  @@index([asnId, lineStatus])
+  @@map("asn_lines")
+}
+
+// ==========================================
+// BLIND RECEIVING
+// ==========================================
+
+model BlindReceipt {
+  id                String              @id @default(uuid())
+  tenantId          String
+  warehouseId       String
+  receiptNumber     String
+  receiptType       BlindReceiptType    @default(UNPLANNED_DELIVERY)
+  supplierName      String
+  supplierContact   String?
+  carrier           String?
+  driverName        String?
+  vehicleId         String?
+  arrivalDate       DateTime
+  arrivalTime       DateTime
+  receivingZoneId   String?
+  priority          Priority            @default(STANDARD)
+  status            BlindReceiptStatus  @default(DRAFT)
+  totalLines        Int                 @default(0)
+  totalUnits        Decimal             @default(0) @db.Decimal(10, 2)
+  estimatedValue    Decimal?            @db.Decimal(10, 2)
+  rejectionReason   String?
+  specialNotes      String?
+  createdById       String
+  createdAt         DateTime            @default(now())
+  submittedById     String?
+  submittedAt       DateTime?
+  reviewedById      String?
+  reviewedAt        DateTime?
+
+  tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  warehouse     Warehouse          @relation(fields: [warehouseId], references: [id])
+  createdBy     User               @relation("BlindReceiptCreatedBy", fields: [createdById], references: [id])
+  submittedBy   User?              @relation("BlindReceiptSubmittedBy", fields: [submittedById], references: [id])
+  reviewedBy    User?              @relation("BlindReceiptReviewedBy", fields: [reviewedById], references: [id])
+  lines         BlindReceiptLine[]
+  variances     Variance[]
+
+  @@unique([tenantId, receiptNumber])
+  @@index([tenantId, warehouseId, status])
+  @@map("blind_receipts")
+}
+
+model BlindReceiptLine {
+  id                 String     @id @default(uuid())
+  blindReceiptId     String
+  tenantId           String
+  lineNumber         Int
+  skuId              String?
+  skuCode            String
+  productName        String
+  quantityReceived   Decimal    @db.Decimal(10, 2)
+  uom                String
+  batchNumber        String?
+  expiryDate         DateTime?
+  lpn                String?
+  serialNumbers      String[]
+  condition          ItemCondition @default(GOOD)
+  temperatureReading Decimal?   @db.Decimal(5, 2)
+  qaHold             Boolean    @default(false)
+  estimatedUnitCost  Decimal?   @db.Decimal(10, 2)
+  lineStatus         LineStatus @default(DRAFT)
+  photoEvidenceUrls  String[]
+  receiverNotes      String?
+  supervisorNotes    String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  blindReceipt BlindReceipt @relation(fields: [blindReceiptId], references: [id], onDelete: Cascade)
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sku          SKU?         @relation(fields: [skuId], references: [id])
+
+  @@unique([blindReceiptId, lineNumber])
+  @@map("blind_receipt_lines")
+}
+
+// ==========================================
+// VARIANCE MANAGEMENT
+// ==========================================
+
+model Variance {
+  id                  String         @id @default(uuid())
+  tenantId            String
+  warehouseId         String
+  receiptType         ReceiptType
+  receiptId           String?
+  receiptLineId       String?
+  asnId               String?
+  blindReceiptId      String?
+  skuId               String?
+  skuCode             String
+  productName         String
+  varianceType        VarianceType
+  expectedQuantity    Decimal?       @db.Decimal(10, 2)
+  receivedQuantity    Decimal        @db.Decimal(10, 2)
+  varianceQuantity    Decimal        @db.Decimal(10, 2)
+  variancePercentage  Decimal        @db.Decimal(5, 2)
+  varianceValue       Decimal?       @db.Decimal(10, 2)
+  reasonCode          String
+  reasonDescription   String?
+  receiverNotes       String?
+  photoEvidenceUrls   String[]
+  temperatureReading  Decimal?       @db.Decimal(5, 2)
+  batchNumber         String?
+  expiryDate          DateTime?
+  conditionAssessment ItemCondition  @default(GOOD)
+  status              VarianceStatus @default(PENDING)
+  priority            Priority       @default(MEDIUM)
+  submittedById       String
+  submittedAt         DateTime       @default(now())
+  reviewedById        String?
+  reviewedAt          DateTime?
+  resolutionAction    ResolutionAction?
+  supervisorNotes     String?
+  escalatedToId       String?
+  escalatedAt         DateTime?
+  resolvedAt          DateTime?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  warehouse      Warehouse     @relation(fields: [warehouseId], references: [id])
+  asn            ASN?          @relation(fields: [asnId], references: [id])
+  blindReceipt   BlindReceipt? @relation(fields: [blindReceiptId], references: [id])
+  sku            SKU?          @relation(fields: [skuId], references: [id])
+  submittedBy    User          @relation("VarianceSubmittedBy", fields: [submittedById], references: [id])
+  reviewedBy     User?         @relation("VarianceReviewedBy", fields: [reviewedById], references: [id])
+  escalatedTo    User?         @relation("VarianceEscalatedTo", fields: [escalatedToId], references: [id])
+
+  @@index([tenantId, warehouseId, status])
+  @@index([status, priority])
+  @@map("variances")
+}
+
+// ==========================================
+// PUTAWAY MANAGEMENT
+// ==========================================
+
+model PutawayTask {
+  id                      String          @id @default(uuid())
+  tenantId                String
+  warehouseId             String
+  taskNumber              String
+  receiptType             ReceiptType
+  receiptId               String?
+  receiptLineId           String?
+  taskType                PutawayTaskType @default(STANDARD)
+  status                  PutawayStatus   @default(PENDING)
+  priority                Priority        @default(NORMAL)
+  operatorUserId          String?
+  skuId                   String
+  skuCode                 String
+  productName             String
+  quantityToPutaway       Decimal         @db.Decimal(10, 2)
+  quantityConfirmed       Decimal         @default(0) @db.Decimal(10, 2)
+  batchNumber             String?
+  expiryDate              DateTime?
+  lpn                     String?
+  serialNumbers           String[]
+  sourceLocationId        String
+  sourceLocationCode      String
+  destinationLocationId   String?
+  destinationLocationCode String?
+  destinationZoneId       String?
+  putawayStrategy         String
+  estimatedDurationMinutes Int?
+  actualDurationMinutes   Int?
+  distanceMeters          Decimal?        @db.Decimal(10, 2)
+  specialHandling         Json?
+  assignedAt              DateTime?
+  startedAt               DateTime?
+  completedAt             DateTime?
+  operatorNotes           String?
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @updatedAt
+
+  tenant              Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  warehouse           Warehouse @relation(fields: [warehouseId], references: [id])
+  sku                 SKU       @relation(fields: [skuId], references: [id])
+  sourceLocation      Location  @relation("SourceLocation", fields: [sourceLocationId], references: [id])
+  destinationLocation Location? @relation("DestinationLocation", fields: [destinationLocationId], references: [id])
+  destinationZone     Zone?     @relation(fields: [destinationZoneId], references: [id])
+  operator            User?     @relation("PutawayOperator", fields: [operatorUserId], references: [id])
+
+  @@unique([tenantId, taskNumber])
+  @@index([tenantId, warehouseId, status])
+  @@index([status, priority])
+  @@map("putaway_tasks")
+}
+
+// ==========================================
+// LPN (LICENSE PLATE NUMBER)
+// ==========================================
+
+model LPN {
+  id                         String      @id @default(uuid())
+  tenantId                   String
+  warehouseId                String
+  lpnCode                    String
+  lpnType                    LPNType     @default(PALLET)
+  status                     LPNStatus   @default(RECEIVING)
+  parentLpnId                String?
+  currentLocationId          String?
+  currentZoneId              String?
+  totalUnits                 Decimal     @default(0) @db.Decimal(10, 2)
+  totalWeightKg              Decimal?    @db.Decimal(10, 3)
+  totalVolumeM3              Decimal?    @db.Decimal(10, 4)
+  dimensions                 Json?
+  isMixedSku                 Boolean     @default(false)
+  containsBatchTracked       Boolean     @default(false)
+  containsSerialized         Boolean     @default(false)
+  containsTemperatureControlled Boolean  @default(false)
+  containsHazmat             Boolean     @default(false)
+  createdById                String
+  createdAt                  DateTime    @default(now())
+  lastMovedById              String?
+  lastMovedAt                DateTime?
+  updatedAt                  DateTime    @updatedAt
+
+  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  warehouse       Warehouse    @relation(fields: [warehouseId], references: [id])
+  currentLocation Location?    @relation(fields: [currentLocationId], references: [id])
+  createdBy       User         @relation("LPNCreatedBy", fields: [createdById], references: [id])
+  lastMovedBy     User?        @relation("LPNLastMovedBy", fields: [lastMovedById], references: [id])
+  parentLpn       LPN?         @relation("NestedLPN", fields: [parentLpnId], references: [id])
+  childLpns       LPN[]        @relation("NestedLPN")
+  contents        LPNContent[]
+
+  @@unique([tenantId, lpnCode])
+  @@index([tenantId, warehouseId, status])
+  @@map("lpns")
+}
+
+model LPNContent {
+  id            String    @id @default(uuid())
+  lpnId         String
+  tenantId      String
+  skuId         String
+  quantity      Decimal   @db.Decimal(10, 2)
+  batchNumber   String?
+  expiryDate    DateTime?
+  serialNumbers String[]
+  addedAt       DateTime  @default(now())
+  removedAt     DateTime?
+
+  lpn    LPN    @relation(fields: [lpnId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sku    SKU    @relation(fields: [skuId], references: [id])
+
+  @@index([lpnId])
+  @@map("lpn_contents")
+}
+
+// ==========================================
+// USER & AUTHENTICATION
+// ==========================================
+
+model User {
+  id           String   @id @default(uuid())
+  tenantId     String
+  email        String   @unique
+  password     String
+  firstName    String
+  lastName     String
+  role         UserRole
+  isActive     Boolean  @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant                    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  asnsCreated               ASN[]          @relation("ASNCreatedBy")
+  asnsReceived              ASN[]          @relation("ASNReceivedBy")
+  blindReceiptsCreated      BlindReceipt[] @relation("BlindReceiptCreatedBy")
+  blindReceiptsSubmitted    BlindReceipt[] @relation("BlindReceiptSubmittedBy")
+  blindReceiptsReviewed     BlindReceipt[] @relation("BlindReceiptReviewedBy")
+  variancesSubmitted        Variance[]     @relation("VarianceSubmittedBy")
+  variancesReviewed         Variance[]     @relation("VarianceReviewedBy")
+  variancesEscalated        Variance[]     @relation("VarianceEscalatedTo")
+  putawayTasksOperated      PutawayTask[]  @relation("PutawayOperator")
+  lpnsCreated               LPN[]          @relation("LPNCreatedBy")
+  lpnsLastMoved             LPN[]          @relation("LPNLastMovedBy")
+
+  @@index([tenantId, role])
+  @@map("users")
+}
+
+// ==========================================
+// ENUMS
+// ==========================================
+
+enum ZoneType {
+  RECEIVING
+  STORAGE
+  PICK_FACE
+  RESERVE
+  PACKING
+  SHIPPING
+  HAZMAT
+  REFRIGERATED
+  FROZEN
+  QUARANTINE
+  RETURNS
+}
+
+enum LocationType {
+  DOCK
+  STAGING
+  STORAGE
+  PICK_FACE
+  RESERVE
+  PACKING_STATION
+  SHIPPING_DOCK
+}
+
+enum LocationStatus {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+  FULL
+}
+
+enum Priority {
+  LOW
+  STANDARD
+  NORMAL
+  HIGH
+  URGENT
+  CRITICAL
+  MEDIUM
+}
+
+enum ShipmentStatus {
+  CREATED
+  IN_TRANSIT
+  ARRIVED
+  RECEIVING
+  COMPLETED
+  CANCELLED
+}
+
+enum LineStatus {
+  DRAFT
+  PENDING
+  RECEIVING
+  COMPLETED
+  VARIANCE
+  REJECTED
+  CORRECTION_NEEDED
+}
+
+enum VarianceType {
+  NONE
+  SHORTAGE
+  OVERAGE
+  DAMAGED
+  WRONG_ITEM
+  MISSING
+  EXPIRED
+  QUALITY_ISSUE
+  TEMPERATURE_VIOLATION
+  MISSING_LABEL
+}
+
+enum BlindReceiptType {
+  UNPLANNED_DELIVERY
+  SAMPLE
+  RETURN
+  OTHER
+}
+
+enum BlindReceiptStatus {
+  DRAFT
+  SUBMITTED
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+}
+
+enum ItemCondition {
+  GOOD
+  DAMAGED
+  EXPIRED
+  UNKNOWN
+}
+
+enum ReceiptType {
+  ASN
+  BLIND
+}
+
+enum VarianceStatus {
+  PENDING
+  NEW
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  ESCALATED
+}
+
+enum ResolutionAction {
+  APPROVE_AS_IS
+  ADJUST_QUANTITY
+  REJECT_LINE
+  ESCALATE
+  RETURN_TO_SUPPLIER
+}
+
+enum PutawayTaskType {
+  STANDARD
+  BATCH
+  BULK
+}
+
+enum PutawayStatus {
 model Customer {
   id        String   @id @default(uuid())
   tenantId  String
@@ -530,6 +1177,35 @@ enum PickTaskStatus {
   IN_PROGRESS
   COMPLETED
   CANCELLED
+  ON_HOLD
+}
+
+enum LPNType {
+  PALLET
+  CARTON
+  TOTE
+  OTHER
+}
+
+enum LPNStatus {
+  RECEIVING
+  AVAILABLE
+  ALLOCATED
+  PICKED
+  SHIPPED
+  CONSUMED
+  ARCHIVED
+}
+
+enum UserRole {
+  PLATFORM_ADMIN
+  TENANT_ADMIN
+  WAREHOUSE_MANAGER
+  RECEIVING_SUPERVISOR
+  WAREHOUSE_RECEIVER
+  QA_INSPECTOR
+  BUYER
+  PUTAWAY_OPERATOR
 }
 
 model PickTaskLine {

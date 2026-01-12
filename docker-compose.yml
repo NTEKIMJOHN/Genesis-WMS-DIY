@@ -3,6 +3,22 @@ version: '3.8'
 services:
   # PostgreSQL Database
   postgres:
+    image: postgres:14-alpine
+    container_name: genesis-wms-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: genesis_user
+      POSTGRES_PASSWORD: genesis_password
+      POSTGRES_DB: genesis_wms
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - genesis-network
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U genesis_user -d genesis_wms']
     image: postgres:16-alpine
     container_name: genesis-wms-db
     restart: unless-stopped
@@ -208,6 +224,41 @@ services:
       - /app/node_modules
     depends_on:
       - backend
+    networks:
+      - genesis-network
+    command: npm run dev
+
+  # pgAdmin (Optional - Database Management Tool)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: genesis-wms-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@genesis-wms.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - '5050:80'
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+    networks:
+      - genesis-network
+
+networks:
+  genesis-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+  backend_uploads:
+    driver: local
+  backend_logs:
+    driver: local
     command: npm run dev
       - inventory-core-service
       - batch-management-service

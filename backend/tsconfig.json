@@ -5,6 +5,7 @@
     "lib": ["ES2022"],
     "outDir": "./dist",
     "rootDir": "./src",
+    "removeComments": true,
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -19,6 +20,11 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "allowSyntheticDefaultImports": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],

@@ -19,6 +19,50 @@ services:
       - genesis-network
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U genesis_user -d genesis_wms']
+    image: postgres:16-alpine
+    container_name: genesis-wms-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: genesis
+      POSTGRES_PASSWORD: genesis_dev_password
+      POSTGRES_DB: genesis_wms
+  # PostgreSQL Database with TimescaleDB
+  postgres:
+    image: timescale/timescaledb:latest-pg14
+    container_name: genesis-wms-db
+    environment:
+      POSTGRES_DB: genesis_wms
+      POSTGRES_USER: genesis_admin
+      POSTGRES_PASSWORD: genesis_secure_password_2025
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U genesis"]
+      - ./database/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U genesis_admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching and event bus
+  redis:
+    image: redis:7-alpine
+    container_name: genesis-wms-redis
+    restart: unless-stopped
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: genesis-wms-redis
+    command: redis-server --requirepass genesis_redis_password
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -28,40 +72,153 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      target: development
     container_name: genesis-wms-backend
     restart: unless-stopped
+    ports:
+      - "3000:3000"
     environment:
       NODE_ENV: development
+      DATABASE_URL: postgresql://genesis:genesis_dev_password@postgres:5432/genesis_wms
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: your-secret-key-change-in-production
       PORT: 3000
-      DATABASE_URL: postgresql://genesis_user:genesis_password@postgres:5432/genesis_wms?schema=public
-      JWT_SECRET: your-super-secret-jwt-key-change-in-production
-      JWT_EXPIRES_IN: 24h
-      CORS_ORIGIN: http://localhost:5173
-    ports:
-      - '3000:3000'
     volumes:
       - ./backend:/app
       - /app/node_modules
-      - backend_uploads:/app/uploads
-      - backend_logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy
-    networks:
-      - genesis-network
+      redis:
+        condition: service_healthy
     command: npm run dev
+      timeout: 3s
+      retries: 5
+
+  # RabbitMQ Message Queue
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: genesis-wms-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: genesis
+      RABBITMQ_DEFAULT_PASS: genesis_rabbitmq_password
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Inventory Core Service
+  inventory-core-service:
+    build:
+      context: ./backend/inventory-core-service
+      dockerfile: Dockerfile
+    container_name: genesis-inventory-core
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgresql://genesis_admin:genesis_secure_password_2025@postgres:5432/genesis_wms
+      REDIS_URL: redis://:genesis_redis_password@redis:6379
+      RABBITMQ_URL: amqp://genesis:genesis_rabbitmq_password@rabbitmq:5672
+    ports:
+      - "3001:3001"
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+    volumes:
+      - ./backend/inventory-core-service:/app
+      - /app/node_modules
+
+  # Batch Management Service
+  batch-management-service:
+    build:
+      context: ./backend/batch-management-service
+      dockerfile: Dockerfile
+    container_name: genesis-batch-management
+    environment:
+      NODE_ENV: development
+      PORT: 3002
+      DATABASE_URL: postgresql://genesis_admin:genesis_secure_password_2025@postgres:5432/genesis_wms
+      REDIS_URL: redis://:genesis_redis_password@redis:6379
+      RABBITMQ_URL: amqp://genesis:genesis_rabbitmq_password@rabbitmq:5672
+    ports:
+      - "3002:3002"
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+    volumes:
+      - ./backend/batch-management-service:/app
+      - /app/node_modules
+
+  # Threshold Monitoring Service
+  threshold-monitoring-service:
+    build:
+      context: ./backend/threshold-monitoring-service
+      dockerfile: Dockerfile
+    container_name: genesis-threshold-monitoring
+    environment:
+      NODE_ENV: development
+      PORT: 3003
+      DATABASE_URL: postgresql://genesis_admin:genesis_secure_password_2025@postgres:5432/genesis_wms
+      REDIS_URL: redis://:genesis_redis_password@redis:6379
+      RABBITMQ_URL: amqp://genesis:genesis_rabbitmq_password@rabbitmq:5672
+    ports:
+      - "3003:3003"
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+    volumes:
+      - ./backend/threshold-monitoring-service:/app
+      - /app/node_modules
+
+  # Cycle Count Service
+  cycle-count-service:
+    build:
+      context: ./backend/cycle-count-service
+      dockerfile: Dockerfile
+    container_name: genesis-cycle-count
+    environment:
+      NODE_ENV: development
+      PORT: 3004
+      DATABASE_URL: postgresql://genesis_admin:genesis_secure_password_2025@postgres:5432/genesis_wms
+      REDIS_URL: redis://:genesis_redis_password@redis:6379
+      RABBITMQ_URL: amqp://genesis:genesis_rabbitmq_password@rabbitmq:5672
+    ports:
+      - "3004:3004"
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+    volumes:
+      - ./backend/cycle-count-service:/app
+      - /app/node_modules
 
   # Frontend Application
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      target: development
     container_name: genesis-wms-frontend
     restart: unless-stopped
+    ports:
+      - "5173:5173"
     environment:
       VITE_API_URL: http://localhost:3000/api/v1
+      dockerfile: Dockerfile.dev
+    container_name: genesis-wms-frontend
+    environment:
+      VITE_API_GATEWAY_URL: http://localhost:8080
     ports:
-      - '5173:5173'
+      - "5173:5173"
     volumes:
       - ./frontend:/app
       - /app/node_modules
@@ -102,3 +259,13 @@ volumes:
     driver: local
   backend_logs:
     driver: local
+    command: npm run dev
+      - inventory-core-service
+      - batch-management-service
+      - threshold-monitoring-service
+      - cycle-count-service
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:

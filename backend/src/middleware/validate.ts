@@ -8,6 +8,16 @@ export const validate = (schema: ZodSchema) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       await schema.parseAsync(req.body);
+import { AppError } from './errorHandler';
+
+export const validate = (schema: ZodSchema) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    try {
+      schema.parse({
+        body: req.body,
+        query: req.query,
+        params: req.params,
+      });
       next();
     } catch (error) {
       if (error instanceof ZodError) {
@@ -77,6 +87,10 @@ export const validateParams = (schema: ZodSchema) => {
         });
       }
 
+          message: 'Validation failed',
+          errors,
+        });
+      }
       next(error);
     }
   };

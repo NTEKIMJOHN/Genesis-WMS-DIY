@@ -121,18 +121,21 @@ app.get('/api/v1', (req, res) => {
   });
 });
 
-// Import routes (these will be created next)
-// import authRoutes from './routes/auth.routes';
-// import asnRoutes from './routes/asn.routes';
-// import blindReceiptRoutes from './routes/blindReceipt.routes';
-// import varianceRoutes from './routes/variance.routes';
-// import putawayRoutes from './routes/putaway.routes';
+// Import routes
+import authRoutes from './routes/auth.routes';
+import asnRoutes from './routes/asn.routes';
+import blindReceiptRoutes from './routes/blindReceipt.routes';
+import varianceRoutes from './routes/variance.routes';
+import putawayRoutes from './routes/putaway.routes';
+import lpnRoutes from './routes/lpn.routes';
 
-// app.use('/api/v1/auth', authRoutes);
-// app.use('/api/v1/asn', asnRoutes);
-// app.use('/api/v1/blind-receipts', blindReceiptRoutes);
-// app.use('/api/v1/variances', varianceRoutes);
-// app.use('/api/v1/putaway', putawayRoutes);
+// Mount routes
+app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/asn', asnRoutes);
+app.use('/api/v1/blind-receipts', blindReceiptRoutes);
+app.use('/api/v1/variances', varianceRoutes);
+app.use('/api/v1/putaway', putawayRoutes);
+app.use('/api/v1/lpn', lpnRoutes);
 
 // ==========================================
 // ERROR HANDLING

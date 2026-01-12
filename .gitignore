@@ -12,10 +12,33 @@ dist/
 build/
 .next/
 out/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+/.pnp
+.pnp.js
+
+# Testing
+/coverage
+*.log
+
+# Production
+/build
+/dist
+*.tsbuildinfo
 
 # Environment variables
 .env
 .env.local
+.env.development
+.env.production
+.env.test
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
 .env.development.local
 .env.test.local
 .env.production.local
@@ -51,6 +74,44 @@ temp/
 # Prisma
 prisma/migrations/*
 !prisma/migrations/.gitkeep
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+postgres-data/
+
+# Logs
+logs/
+*.log
+
+# Testing
+coverage/
+.nyc_output/
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Database
+*.sqlite
+*.sqlite3
 
 # Docker
 docker-compose.override.yml
@@ -74,3 +135,13 @@ pnpm-lock.yaml
 *.bak
 *.backup
 *.old
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Prisma
+prisma/migrations/
+# Build artifacts
+*.tgz
+.cache/

@@ -33,5 +33,35 @@ if (process.env.NODE_ENV === 'development') {
 prisma.$on('error' as never, (e: any) => {
   logger.error('Database Error:', e);
 });
+import { logger } from '../utils/logger';
+
+const prismaClientSingleton = () => {
+  return new PrismaClient({
+    log: [
+      { level: 'query', emit: 'event' },
+      { level: 'error', emit: 'stdout' },
+      { level: 'warn', emit: 'stdout' },
+    ],
+  });
+};
+
+declare global {
+  // eslint-disable-next-line no-var
+  var prisma: undefined | ReturnType<typeof prismaClientSingleton>;
+}
+
+export const prisma = globalThis.prisma ?? prismaClientSingleton();
+
+// Log queries in development
+if (process.env.NODE_ENV === 'development') {
+  prisma.$on('query', (e) => {
+    logger.debug(`Query: ${e.query}`);
+    logger.debug(`Duration: ${e.duration}ms`);
+  });
+}
+
+if (process.env.NODE_ENV !== 'production') {
+  globalThis.prisma = prisma;
+}
 
 export default prisma;
